@@ -100,50 +100,81 @@ def get_end_valid_time(msg):
     return valid_date
 
 
-def ingest_grib_file(file_path, source):
+def ingest_grib_file(file_path, source, max_chunk_size=50*1024*1024):  # 50MB chunk size
     """
     Ingests a given GRIB file into the backend.
     :param file_path: Path to the GRIB file
     :param source: Source object which denotes which source this data is from
+    :param max_chunk_size: Maximum size in bytes for message chunks before storage
     :return: None
     """
     logger.info("Processing GRIB file '%s'", file_path)
 
-    grib = pygrib.open(file_path)
+    grib = None
+    try:
+        grib = pygrib.open(file_path)
 
-    # Keeps all data points that we'll be inserting at the end.
-    # Map of projection to map of {(field_id, valid_time, run_time) -> [msg, ...]}
-    data_by_projection = collections.defaultdict(lambda: collections.defaultdict(list))
+        # Process fields in chunks to manage memory usage
+        current_chunk = collections.defaultdict(lambda: collections.defaultdict(list))
+        current_chunk_size = 0
 
-    for field in SourceField.query.filter(SourceField.source_id == source.id, SourceField.metric.has(Metric.intermediate == False)).all():
-        try:
-            msgs = grib.select(**field.selectors)
-        except ValueError:
-            if field.selectors.get('shortName') not in ('wind', 'wdir'):
-                logger.warning("Could not find message(s) in grib matching selectors %s", field.selectors)
-            continue
+        for field in SourceField.query.filter(SourceField.source_id == source.id, SourceField.metric.has(Metric.intermediate == False)).all():
+            try:
+                msgs = grib.select(**field.selectors)
+            except ValueError:
+                if field.selectors.get('shortName') not in ('wind', 'wdir'):
+                    logger.warning("Could not find message(s) in grib matching selectors %s", field.selectors)
+                continue
 
-        for msg in msgs:
-            with tracing.start_span('parse message') as span:
-                span.set_attribute('message', str(msg))
+            for msg in msgs:
+                with tracing.start_span('parse message') as span:
+                    span.set_attribute('message', str(msg))
 
-                if field.projection is None or field.projection.params != msg.projparams:
-                    projection = get_or_create_projection(msg)
-                    field.projection_id = projection.id
-                    db.session.commit()
+                    if field.projection is None or field.projection.params != msg.projparams:
+                        projection = get_or_create_projection(msg)
+                        field.projection_id = projection.id
+                        db.session.commit()
 
-                valid_date = get_end_valid_time(msg)
-                data_by_projection[field.projection][(field.id, valid_date, msg.analDate)].append(msg.values)
+                    valid_date = get_end_valid_time(msg)
+                    msg_values = msg.values
+                    msg_size = len(msg_values) * 8  # Approximate size in bytes (8 bytes per float)
 
-    with tracing.start_span('generate derived'):
-        logger.info("Generating derived fields")
-        for proj, fields in get_source_module(source.short_name).generate_derived(grib).items():
-            for k, v in fields.items():
-                data_by_projection[proj][k].extend(v)
+                    # If adding this message would exceed chunk size, store current chunk
+                    if current_chunk_size + msg_size > max_chunk_size and current_chunk:
+                        with tracing.start_span('save chunk'):
+                            logger.info("Storing chunk of size %d bytes", current_chunk_size)
+                            for proj, fields in current_chunk.items():
+                                storage.get_provider().put_fields(proj, fields)
+                        current_chunk.clear()
+                        current_chunk_size = 0
 
-    with tracing.start_span('save denormalized'):
-        logger.info("Saving denormalized location/time data for all messages")
-        for proj, fields in data_by_projection.items():
-            storage.get_provider().put_fields(proj, fields)
+                    current_chunk[field.projection][(field.id, valid_date, msg.analDate)].append(msg_values)
+                    current_chunk_size += msg_size
 
-    logger.info("Done saving denormalized data")
+        # Process any derived fields in the final chunk
+        with tracing.start_span('generate derived'):
+            logger.info("Generating derived fields")
+            for proj, fields in get_source_module(source.short_name).generate_derived(grib).items():
+                for k, v in fields.items():
+                    derived_size = sum(len(arr) * 8 for arr in v)  # 8 bytes per float
+                    if current_chunk_size + derived_size > max_chunk_size and current_chunk:
+                        # Store current chunk before adding derived fields
+                        for proj, fields in current_chunk.items():
+                            storage.get_provider().put_fields(proj, fields)
+                        current_chunk.clear()
+                        current_chunk_size = 0
+                    current_chunk[proj][k].extend(v)
+                    current_chunk_size += derived_size
+
+        # Store final chunk if any data remains
+        if current_chunk:
+            with tracing.start_span('save final chunk'):
+                logger.info("Storing final chunk of size %d bytes", current_chunk_size)
+                for proj, fields in current_chunk.items():
+                    storage.get_provider().put_fields(proj, fields)
+
+        logger.info("Done saving denormalized data")
+
+    finally:
+        if grib is not None:
+            grib.close()
