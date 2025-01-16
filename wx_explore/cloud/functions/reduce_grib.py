@@ -8,6 +8,24 @@ from wx_explore.ingest.reduce_grib import reduce_grib
 
 
 def func(req):
+    """Process GRIB file reduction request with proper resource management.
+    
+    Args:
+        req: Request object containing url, idx, source_name and out parameters
+        
+    Returns:
+        HttpResponse with status and filename
+        
+    Raises:
+        ValueError: If required parameters are missing or source is invalid
+        ClientError: If S3 upload fails
+    """
+    import logging
+    from botocore.exceptions import ClientError
+    from contextlib import contextmanager
+
+    logger = logging.getLogger(__name__)
+
     if not all(param in req.args for param in ['url', 'idx', 'source_name', 'out']):
         raise ValueError("Missing params")
 
@@ -15,22 +33,59 @@ def func(req):
     engine = db_engine(req.args)
     Session = sessionmaker()
     Session.configure(bind=engine)
-    session = Session()
 
-    fields = (session.query(SourceField).join(Source, SourceField.source_id == Source.id)
-              .filter(Source.name == req.args['source_name'])
-              .all())
+    @contextmanager
+    def session_scope():
+        """Provide a transactional scope around a series of operations."""
+        session = Session()
+        try:
+            yield session
+            session.commit()
+        except:
+            session.rollback()
+            raise
+        finally:
+            session.close()
 
-    if not fields:
-        raise ValueError("Provided source_name does not have a Source table entry")
+    try:
+        with session_scope() as session:
+            fields = (session.query(SourceField)
+                     .join(Source, SourceField.source_id == Source.id)
+                     .filter(Source.name == req.args['source_name'])
+                     .all())
 
-    with tempfile.TemporaryFile() as f:
-        reduce_grib(req.args['url'], req.args['idx'], fields, f)
-        f.seek(0)
-        s3.upload_fileobj(f, "vtxwx-data", req.args['out'], ExtraArgs={'ACL': 'public-read'})
+            if not fields:
+                raise ValueError("Provided source_name does not have a Source table entry")
 
-    return HttpResponse(
-        {"status": "ok", "filename": req.args['out']}
-    )
+            with tempfile.TemporaryFile() as f:
+                try:
+                    reduce_grib(req.args['url'], req.args['idx'], fields, f)
+                    f.seek(0)
+                    
+                    try:
+                        s3.upload_fileobj(
+                            f, 
+                            "vtxwx-data", 
+                            req.args['out'], 
+                            ExtraArgs={'ACL': 'public-read'}
+                        )
+                    except ClientError as e:
+                        logger.error(f"Failed to upload to S3: {str(e)}")
+                        raise
+                        
+                except Exception as e:
+                    logger.error(f"Failed to reduce GRIB file: {str(e)}")
+                    raise
+
+        return HttpResponse(
+            {"status": "ok", "filename": req.args['out']}
+        )
+        
+    except Exception as e:
+        logger.error(f"Error processing request: {str(e)}")
+        return HttpResponse(
+            {"status": "error", "message": str(e)},
+            status_code=500
+        )
 
 main = proxy(func)
