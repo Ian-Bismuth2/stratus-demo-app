@@ -47,5 +47,6 @@ def main(msg: func.QueueMessage):
                 source.last_updated = datetime.utcnow()
 
                 db.session.commit()
-            except Exception:
+            except Exception as e:
                 logger.exception("Exception while ingesting %s.")
+                raise  # Re-throw exception to trigger Azure Functions retry mechanism
