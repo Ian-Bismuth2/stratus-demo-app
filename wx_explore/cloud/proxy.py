@@ -5,7 +5,11 @@ agnostic.
 from typing import Mapping, Optional, Any
 
 import base64
+import logging
 import os
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
 
 
 class HttpRequest(object):
@@ -36,6 +40,15 @@ class HttpResponse(object):
         self.code = code
         self.headers = headers if headers is not None else {}
 
+    @staticmethod
+    def safe_error_response():
+        """Creates a sanitized 500 error response that doesn't leak implementation details."""
+        return HttpResponse(
+            body=b'{"error": "Internal Server Error"}',
+            code=500,
+            headers={"Content-Type": "application/json"}
+        )
+
 
 def proxy(cb):
     def inner(*args):
@@ -43,82 +56,115 @@ def proxy(cb):
             # Azure
             import azure.functions
             az_req: azure.functions.HttpRequest = args[0]
-            req = HttpRequest(
-                method=az_req.method,
-                path='',
-                args=az_req.params,
-                headers=az_req.headers,
-                body=az_req.get_body(),
-            )
+            try:
+                req = HttpRequest(
+                    method=az_req.method,
+                    path='',
+                    args=az_req.params,
+                    headers=az_req.headers,
+                    body=az_req.get_body(),
+                )
 
-            resp = cb(req)
+                resp = cb(req)
 
-            return azure.functions.HttpResponse(
-                status_code=resp.code,
-                headers=resp.headers,
-                body=resp.body,
-            )
+                return azure.functions.HttpResponse(
+                    status_code=resp.code,
+                    headers=resp.headers,
+                    body=resp.body,
+                )
+            except Exception as e:
+                logging.error(f"Azure function error: {str(e)}", exc_info=True)
+                error_resp = HttpResponse.safe_error_response()
+                return azure.functions.HttpResponse(
+                    status_code=error_resp.code,
+                    headers=error_resp.headers,
+                    body=error_resp.body,
+                )
 
         elif 'AWS_LAMBDA_FUNCTION_NAME' in os.environ:
             # AWS Lambda (proxy function)
-            event: Mapping[str, Any] = args[0]
-            body = event.get('body', b'')
-            if event['isBase64Encoded']:
-                body = base64.b64decode(body)
+            try:
+                event: Mapping[str, Any] = args[0]
+                body = event.get('body', b'')
+                if event['isBase64Encoded']:
+                    body = base64.b64decode(body)
 
-            req = HttpRequest(
-                method=event['requestContext']['http']['method'],
-                path=event['requestContext']['http']['path'],
-                args=event.get('queryStringParameters', {}),
-                headers=event.get('headers', {}),
-                body=body,
-            )
+                req = HttpRequest(
+                    method=event['requestContext']['http']['method'],
+                    path=event['requestContext']['http']['path'],
+                    args=event.get('queryStringParameters', {}),
+                    headers=event.get('headers', {}),
+                    body=body,
+                )
 
-            resp = cb(req)
+                resp = cb(req)
 
-            return {
-                'statusCode': resp.code,
-                'headers': resp.headers,
-                'body': base64.b64encode(resp.body).decode('ascii'),
-                'isBase64Encoded': True,
-            }
+                return {
+                    'statusCode': resp.code,
+                    'headers': resp.headers,
+                    'body': base64.b64encode(resp.body).decode('ascii'),
+                    'isBase64Encoded': True,
+                }
+            except Exception as e:
+                logging.error(f"AWS Lambda function error: {str(e)}", exc_info=True)
+                error_resp = HttpResponse.safe_error_response()
+                return {
+                    'statusCode': error_resp.code,
+                    'headers': error_resp.headers,
+                    'body': base64.b64encode(error_resp.body).decode('ascii'),
+                    'isBase64Encoded': True,
+                }
 
         elif '__OW_ACTION_NAME' in os.environ:
             # OpenWhisk (IBM cloud functions)
-            params = args[0]
+            try:
+                params = args[0]
 
-            req = HttpRequest(
-                method=params.__ow_method,
-                path='',
-                args=params,
-                headers=params.__ow_headers,
-                # TODO: body
-            )
+                req = HttpRequest(
+                    method=params.__ow_method,
+                    path='',
+                    args=params,
+                    headers=params.__ow_headers,
+                    # TODO: body
+                )
 
-            resp = cb(req)
+                resp = cb(req)
 
-            return {
-                'statusCode': resp.code,
-                'headers': resp.headers,
-                'body': resp.body,
-                # TODO: base64 if necessary based on content type
-            }
+                return {
+                    'statusCode': resp.code,
+                    'headers': resp.headers,
+                    'body': resp.body,
+                    # TODO: base64 if necessary based on content type
+                }
+            except Exception as e:
+                logging.error(f"OpenWhisk function error: {str(e)}", exc_info=True)
+                error_resp = HttpResponse.safe_error_response()
+                return {
+                    'statusCode': error_resp.code,
+                    'headers': error_resp.headers,
+                    'body': error_resp.body,
+                }
 
         elif 'FUNCTION_NAME' in os.environ:
             # Google Cloud Functions
-            import flask
-            gcf_req: flask.Request = args[0]
+            try:
+                import flask
+                gcf_req: flask.Request = args[0]
 
-            req = HttpRequest(
-                method=gcf_req.method,
-                path='',
-                args=gcf_req.args,
-                headers=gcf_req.headers,
-                body=gcf_req.data,
-            )
+                req = HttpRequest(
+                    method=gcf_req.method,
+                    path='',
+                    args=gcf_req.args,
+                    headers=gcf_req.headers,
+                    body=gcf_req.data,
+                )
 
-            resp = cb(req)
+                resp = cb(req)
 
-            return (resp.body, resp.code, resp.headers)
+                return (resp.body, resp.code, resp.headers)
+            except Exception as e:
+                logging.error(f"Google Cloud function error: {str(e)}", exc_info=True)
+                error_resp = HttpResponse.safe_error_response()
+                return (error_resp.body, error_resp.code, error_resp.headers)
 
     return inner
