@@ -35,57 +35,121 @@ export default class ForecastView extends React.Component {
       source_fields: null,
       summary: null,
       wx: null,
+      loading: false,
+      error: null,
+    };
+    
+    // Initialize abort controllers for API requests
+    this.abortControllers = {
+      sources: null,
+      metrics: null,
+      location: null,
+      wx: null,
+      summary: null,
     };
   }
 
   getWx() {
+    // Cancel any existing weather requests
+    if (this.abortControllers.wx) this.abortControllers.wx.abort();
+    if (this.abortControllers.summary) this.abortControllers.summary.abort();
+    
+    // Create new abort controllers
+    this.abortControllers.wx = new AbortController();
+    this.abortControllers.summary = new AbortController();
+    
     let t = Math.round((new Date()).getTime() / 1000);
-
-    Api.get("/wx", {
-      params: {
-        lat: this.state.location.lat,
-        lon: this.state.location.lon,
-        start: t,
-        end: t + (3 * 24 * 60 * 60), // 3 days out
-      },
-    }).then(({data}) => this.setState({wx: data}));
-
-    Api.get("/wx/summarize", {
-      params: {
-        lat: this.state.location.lat,
-        lon: this.state.location.lon,
-        days: 1,
-      },
-    }).then(({data}) => this.setState({summary: data}));
+    
+    this.setState({ loading: true, error: null });
+    
+    // Use Promise.all to coordinate concurrent requests
+    Promise.all([
+      Api.get("/wx", {
+        signal: this.abortControllers.wx.signal,
+        params: {
+          lat: this.state.location.lat,
+          lon: this.state.location.lon,
+          start: t,
+          end: t + (3 * 24 * 60 * 60), // 3 days out
+        },
+      }),
+      Api.get("/wx/summarize", {
+        signal: this.abortControllers.summary.signal,
+        params: {
+          lat: this.state.location.lat,
+          lon: this.state.location.lon,
+          days: 1,
+        },
+      })
+    ]).then(([wxResponse, summaryResponse]) => {
+      this.setState({
+        wx: wxResponse.data,
+        summary: summaryResponse.data,
+        loading: false
+      });
+    }).catch(error => {
+      // Don't update state if request was aborted
+      if (error.name === 'AbortError') return;
+      
+      this.setState({
+        error: 'Failed to fetch weather data. Please try again.',
+        loading: false
+      });
+    });
   }
 
   componentDidMount() {
-    Api.get("/sources").then(({data}) => {
-        let sources = {}
-        let source_fields = {};
-        for (let src of data) {
-            sources[src.id] = src;
-            for (let field of src.fields) {
-                source_fields[field.id] = field;
-            }
-        }
-        this.setState({sources, source_fields});
-    });
+    this.setState({ loading: true, error: null });
 
-    Api.get("/metrics").then(({data}) => {
-        let metrics = {}
-        for (let metric of data) {
-            metrics[metric.id] = metric;
+    // Create new abort controllers for initial requests
+    this.abortControllers.sources = new AbortController();
+    this.abortControllers.metrics = new AbortController();
+    this.abortControllers.location = new AbortController();
+
+    // Load sources and metrics data
+    Promise.all([
+      Api.get("/sources", { signal: this.abortControllers.sources.signal }),
+      Api.get("/metrics", { signal: this.abortControllers.metrics.signal })
+    ]).then(([sourcesResponse, metricsResponse]) => {
+      let sources = {};
+      let source_fields = {};
+      for (let src of sourcesResponse.data) {
+        sources[src.id] = src;
+        for (let field of src.fields) {
+          source_fields[field.id] = field;
         }
-        this.setState({metrics});
+      }
+
+      let metrics = {};
+      for (let metric of metricsResponse.data) {
+        metrics[metric.id] = metric;
+      }
+
+      this.setState({ sources, source_fields, metrics, loading: false });
+    }).catch(error => {
+      if (error.name === 'AbortError') return;
+      this.setState({
+        error: 'Failed to load initial data. Please refresh the page.',
+        loading: false
+      });
     });
     
+    // Load location data if provided
     if (this.props.match.params.loc_id !== undefined) {
-      Api.get(`/location/${this.props.match.params.loc_id}`).then(({data}) => {
+      Api.get(`/location/${this.props.match.params.loc_id}`, {
+        signal: this.abortControllers.location.signal
+      }).then(({data}) => {
         this.setState({location: data});
+      }).catch(error => {
+        if (error.name === 'AbortError') return;
+        this.setState({
+          error: 'Failed to load location data.',
+          loading: false
+        });
       });
     } else if (this.props.match.params.lat !== undefined && this.props.match.params.lon !== undefined) {
       Api.get("/location/by_coords", {
+        signal: this.abortControllers.location.signal,
         params: {
           lat: this.props.match.params.lat,
           lon: this.props.match.params.lon,
@@ -97,6 +161,12 @@ export default class ForecastView extends React.Component {
             lon: this.props.match.params.lon,
             name: `Near ${data.name}`,
           }
+        });
+      }).catch(error => {
+        if (error.name === 'AbortError') return;
+        this.setState({
+          error: 'Failed to load location data.',
+          loading: false
         });
       });
     }
@@ -115,6 +185,15 @@ export default class ForecastView extends React.Component {
 
     this.setState({wx: null, summary: null});
     this.getWx();
+  }
+
+  componentWillUnmount() {
+    // Cancel all pending API requests
+    Object.values(this.abortControllers).forEach(controller => {
+      if (controller) {
+        controller.abort();
+      }
+    });
   }
 
   chartjsData() {
