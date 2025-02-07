@@ -4,6 +4,8 @@ import {Line as LineChart} from 'react-chartjs-2';
 import Row from 'react-bootstrap/Row';
 import Col from 'react-bootstrap/Col';
 import Spinner from 'react-bootstrap/Spinner';
+import ButtonGroup from 'react-bootstrap/ButtonGroup';
+import Button from 'react-bootstrap/Button';
 
 import Api from './Api';
 
@@ -35,6 +37,7 @@ export default class ForecastView extends React.Component {
       source_fields: null,
       summary: null,
       wx: null,
+      currentTheme: 'theme-blue-ocean', // Default theme
     };
   }
 
@@ -311,7 +314,16 @@ export default class ForecastView extends React.Component {
     }
 
     return (
-      <div>
+      <div className={`forecast-container ${this.state.currentTheme}`}>
+        <Row className="justify-content-md-center mb-3">
+          <Col md="auto">
+            <ButtonGroup>
+              <Button variant="outline-light" onClick={() => this.setState({currentTheme: 'theme-blue-ocean'})}>Ocean</Button>
+              <Button variant="outline-light" onClick={() => this.setState({currentTheme: 'theme-sunset'})}>Sunset</Button>
+              <Button variant="outline-light" onClick={() => this.setState({currentTheme: 'theme-forest'})}>Forest</Button>
+            </ButtonGroup>
+          </Col>
+        </Row>
         <Row className="justify-content-md-center">
           <Col md="auto">
             <h2>{this.state.location.name}</h2>

@@ -1,3 +1,45 @@
+:root {
+  --primary-bg-color: #4a90e2;
+  --secondary-bg-color: #67b26f;
+  --text-color: #333333;
+}
+
 .App {
   text-align: center;
+  color: var(--text-color);
+}
+
+.forecast-container {
+  min-height: 100vh;
+  padding: 20px;
+  background: linear-gradient(135deg, 
+    var(--primary-bg-color) 0%,
+    var(--secondary-bg-color) 100%);
+  transition: background 0.3s ease;
+}
+
+/* Color theme presets */
+.theme-blue-ocean {
+  --primary-bg-color: #2193b0;
+  --secondary-bg-color: #6dd5ed;
+}
+
+.theme-sunset {
+  --primary-bg-color: #ff512f;
+  --secondary-bg-color: #f09819;
+}
+
+.theme-forest {
+  --primary-bg-color: #134e5e;
+  --secondary-bg-color: #71b280;
+}
+
+/* Ensure text remains readable on colored backgrounds */
+.forecast-container h1,
+.forecast-container h2,
+.forecast-container h3,
+.forecast-container h4,
+.forecast-container p {
+  color: white;
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.2);
 }
