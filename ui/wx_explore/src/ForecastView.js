@@ -4,8 +4,31 @@ import {Line as LineChart} from 'react-chartjs-2';
 import Row from 'react-bootstrap/Row';
 import Col from 'react-bootstrap/Col';
 import Spinner from 'react-bootstrap/Spinner';
+import ProgressBar from 'react-bootstrap/ProgressBar';
 
 import Api from './Api';
+
+const ConfidenceIndicator = ({ confidence, label }) => {
+  // Determine color based on confidence level
+  let variant = 'danger';  // low confidence
+  if (confidence >= 70) {
+    variant = 'success';  // high confidence
+  } else if (confidence >= 40) {
+    variant = 'warning';  // medium confidence
+  }
+
+  return (
+    <div className="confidence-indicator">
+      {label && <small className="text-muted">{label}</small>}
+      <ProgressBar 
+        now={confidence} 
+        variant={variant} 
+        style={{height: '0.5rem'}}
+      />
+      <small className="text-muted">{Math.round(confidence)}% confidence</small>
+    </div>
+  );
+};
 
 const lineColors = {
   'hrrr': '255,0,0',
@@ -217,10 +240,46 @@ export default class ForecastView extends React.Component {
         <Col md={2}>
           <i style={{fontSize: "7em"}} className={"wi " + cloudCoverIcon}></i>
         </Col>
-        <Col md={3}>
+        <Col md={4}>
           <h4>{this.props.converter.convert(summary.temps[0].temperature, 'K')} {capitalize(summary.cloud_cover[0].cover)}</h4>
           <p>High: {this.props.converter.convert(summary.high.temperature, 'K')}</p>
           <p>Low: {this.props.converter.convert(summary.low.temperature, 'K')}</p>
+          <div className="mt-2">
+            <ConfidenceIndicator 
+              confidence={summary.confidence.overall} 
+              label="Overall Forecast Confidence"
+            />
+          </div>
+          <div className="mt-2">
+            <Row>
+              <Col>
+                <ConfidenceIndicator 
+                  confidence={summary.confidence.temperature} 
+                  label="Temperature"
+                />
+              </Col>
+              <Col>
+                <ConfidenceIndicator 
+                  confidence={summary.confidence.precipitation} 
+                  label="Precipitation"
+                />
+              </Col>
+            </Row>
+            <Row className="mt-2">
+              <Col>
+                <ConfidenceIndicator 
+                  confidence={summary.confidence.wind} 
+                  label="Wind"
+                />
+              </Col>
+              <Col>
+                <ConfidenceIndicator 
+                  confidence={summary.confidence.cloud_cover} 
+                  label="Cloud Cover"
+                />
+              </Col>
+            </Row>
+          </div>
         </Col>
       </Row>
     );

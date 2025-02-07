@@ -410,9 +410,42 @@ class SummarizedData(object):
 
         return components
 
+    def calculate_confidence(self, metric_points: List[DataPointSet]) -> float:
+        """Calculate confidence score (0-100%) based on agreement between model predictions."""
+        if not metric_points:
+            return 0.0
+            
+        # Get all values across time points
+        all_values = []
+        for point in metric_points:
+            all_values.extend(point.values)
+            
+        if not all_values:
+            return 0.0
+            
+        # Calculate agreement using standard deviation
+        values = numpy.array(all_values)
+        median = numpy.median(values)
+        std = numpy.std(values)
+        
+        # Calculate how many values are within 1 standard deviation
+        within_std = numpy.sum(numpy.abs(values - median) <= std)
+        agreement = within_std / len(values)
+        
+        # Convert to percentage and scale based on number of data points
+        confidence = agreement * 100 * (1 - 1/(len(metric_points) + 1))
+        
+        return min(100.0, max(0.0, confidence))
+
     def dict(self):
         summary = self.summarize()
         text_summary = ' '.join(c['text'] for c in summary)
+
+        # Calculate confidence for each metric type
+        temp_confidence = self.calculate_confidence(self.points_for_metric(metrics.temp))
+        wind_confidence = self.calculate_confidence(self.points_for_metric(metrics.wind_speed))
+        cloud_confidence = self.calculate_confidence(self.points_for_metric(metrics.cloud_cover))
+        precip_confidence = self.calculate_confidence(self.points_for_metric(metrics.composite_reflectivity))
 
         return {
             "high": self.high.dict() if self.high else None,
@@ -421,6 +454,13 @@ class SummarizedData(object):
             "winds": [e.dict() if e is not None else None for e in self.winds],
             "cloud_cover": [e.dict() if e is not None else None for e in self.cloud_cover],
             "precip": [e.dict() if e is not None else None for e in self.precip],
+            "confidence": {
+                "temperature": temp_confidence,
+                "wind": wind_confidence,
+                "cloud_cover": cloud_confidence,
+                "precipitation": precip_confidence,
+                "overall": numpy.mean([temp_confidence, wind_confidence, cloud_confidence, precip_confidence])
+            },
             "summary": {
                 "components": summary,
                 "full_text": text_summary,
