@@ -21,6 +21,14 @@ const metricsToDisplay = [
   "15", // cloud cover
 ];
 
+function calculateStdDev(values) {
+  if (!values || values.length === 0) return 0;
+  const mean = values.reduce((a, b) => a + b) / values.length;
+  const squareDiffs = values.map(value => Math.pow(value - mean, 2));
+  const avgSquareDiff = squareDiffs.reduce((a, b) => a + b) / squareDiffs.length;
+  return Math.sqrt(avgSquareDiff);
+}
+
 function capitalize(s) {
   return s[0].toUpperCase() + s.substring(1)
 }
@@ -139,7 +147,16 @@ export default class ForecastView extends React.Component {
         }
 
         const [val, ] = this.props.converter.convert(data_point.value, metric.units);
-        metrics[metric.id][source.id][data_point.run_time].push({x: new Date(ts * 1000), y: val});
+        const rawValues = data_point.raw_values ? data_point.raw_values.map(v => this.props.converter.convert(v, metric.units)[0]) : [];
+        const stdDev = calculateStdDev(rawValues);
+        metrics[metric.id][source.id][data_point.run_time].push({
+          x: new Date(ts * 1000),
+          y: val,
+          stdDev: stdDev,
+          yMin: val - stdDev,
+          yMax: val + stdDev,
+          rawValues: rawValues
+        });
       }
     }
 
@@ -173,6 +190,7 @@ export default class ForecastView extends React.Component {
           const run_name = moment.unix(run_time).utc().format("HH[Z] dddd Do") + " " + source.name;
           const color = 'rgba('+lineColors[source.short_name]+','+alpha+')';
 
+          // Main line dataset
           datasets[metric_id].push({
             label: run_name,
             data: metrics[metric_id][source_id][run_time],
@@ -180,6 +198,25 @@ export default class ForecastView extends React.Component {
             backgroundColor: color,
             borderColor: color,
             pointBorderColor: color,
+            pointRadius: 2,
+          });
+
+          // Confidence interval dataset
+          const confidenceData = metrics[metric_id][source_id][run_time].map(point => ({
+            x: point.x,
+            y: point.yMin,
+            y1: point.yMax
+          }));
+
+          datasets[metric_id].push({
+            label: `${run_name} (Confidence Interval)`,
+            data: confidenceData,
+            type: 'line',
+            fill: true,
+            backgroundColor: color.replace(alpha, alpha * 0.3),
+            borderColor: 'transparent',
+            pointRadius: 0,
+            fill: '+1', // Fill to next dataset
           });
         }
       }
@@ -284,7 +321,29 @@ export default class ForecastView extends React.Component {
           }],
         },
         legend: {
-          display: false,
+          display: true,
+          labels: {
+            filter: function(legendItem) {
+              // Only show legend for main forecast lines, not confidence intervals
+              return !legendItem.text.includes('Confidence Interval');
+            }
+          }
+        },
+        tooltips: {
+          mode: 'index',
+          intersect: false,
+          callbacks: {
+            label: function(tooltipItem, data) {
+              const dataset = data.datasets[tooltipItem.datasetIndex];
+              const value = dataset.data[tooltipItem.index];
+              
+              if (dataset.label.includes('Confidence Interval')) {
+                return `${dataset.label}: +-${value.stdDev.toFixed(1)}`;
+              }
+              
+              return `${dataset.label}: ${value.y.toFixed(1)} (+-${value.stdDev.toFixed(1)})`;
+            }
+          }
         },
       };
 
