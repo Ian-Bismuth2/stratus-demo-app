@@ -5,6 +5,7 @@ import Container from "react-bootstrap/Container";
 import Row from "react-bootstrap/Row";
 import Col from "react-bootstrap/Col";
 import Form from "react-bootstrap/Form";
+import Spinner from "react-bootstrap/Spinner";
 import { Switch, Route, withRouter } from "react-router-dom";
 
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -12,15 +13,26 @@ import { faGithub } from "@fortawesome/free-brands-svg-icons";
 
 import ForecastView from "./ForecastView";
 import LocationSearchField from "./LocationSearch";
-import { Imperial } from "./Units";
+import { Imperial, Metric } from "./Units";
 
 import "./App.css";
 
 class App extends React.Component {
   state = {
     location: null,
-    unitConverter: new Imperial(),
+    unitConverter: null,
   };
+
+  componentDidMount() {
+    // Determine if user is in a metric region based on locale
+    // US uses imperial, most other countries use metric
+    const userLocale = navigator.language || navigator.userLanguage || '';
+    const isMetricRegion = !userLocale.startsWith('en-US');
+    
+    this.setState({
+      unitConverter: isMetricRegion ? new Metric() : new Imperial()
+    });
+  }
 
   render() {
     if (this.props.location.pathname === "/" && navigator.geolocation) {
@@ -55,13 +67,21 @@ class App extends React.Component {
             <Route
               path={`/id/:loc_id`}
               component={(props) => (
-                <ForecastView converter={this.state.unitConverter} {...props} />
+                this.state.unitConverter ? 
+                <ForecastView converter={this.state.unitConverter} {...props} /> :
+                <Spinner animation="border" role="status">
+                  <span className="sr-only">Loading...</span>
+                </Spinner>
               )}
             />
             <Route
               path={`/coords/:lat/:lon`}
               component={(props) => (
-                <ForecastView converter={this.state.unitConverter} {...props} />
+                this.state.unitConverter ? 
+                <ForecastView converter={this.state.unitConverter} {...props} /> :
+                <Spinner animation="border" role="status">
+                  <span className="sr-only">Loading...</span>
+                </Spinner>
               )}
             />
 
