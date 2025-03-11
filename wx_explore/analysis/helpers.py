@@ -21,3 +21,51 @@ def group_by_time(groups: List[List[DataPointSet]]) -> Iterator[Tuple[datetime.d
 
     for t in sorted(common_times):
         yield (t, tuple(d[t] for d in pt_by_time))
+
+
+import math
+
+def distance_weighted_interpolate(array, x, y):
+    """
+    Performs inverse distance weighted interpolation on a 2D array at point (x,y)
+    using Cartesian distances to the 4 nearest points.
+
+    Parameters:
+    array: 2D numpy array
+    x, y: floating point coordinates within the array bounds
+
+    Returns:
+    Interpolated value at (x,y)
+    """
+    # Get the four surrounding integer coordinates
+    x1, y1 = int(x), int(y)
+    x2, y2 = x1 + 1, y1 + 1
+
+    # Get the four surrounding values and their distances
+    points = [
+        (x1, y1, array[y1][x1]),
+        (x1, y2, array[y2][x1]),
+        (x2, y1, array[y1][x2]),
+        (x2, y2, array[y2][x2])
+    ]
+
+    # Calculate distances and weights
+    distances = []
+    values = []
+    for px, py, val in points:
+        # Compute Euclidean distance
+        dist = math.sqrt((x - px)**2 + (y - py)**2)
+        distances.append(dist)
+        values.append(val)
+
+    # Convert distances to weights (inverse distance)
+    weights = [1/d for d in distances]
+
+    # Normalize weights to sum to 1
+    weight_sum = sum(weights)
+    weights = [w/weight_sum for w in weights]
+
+    # Calculate weighted average
+    result = sum(w * v for w, v in zip(weights, values))
+
+    return result
