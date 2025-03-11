@@ -1,49 +1,26 @@
-# Stratus - Demo App
+Stratus is a site for processing and viewing meteorological predictions.
 
-## What?
-Stratus is a website that aims to fill the gap between sites like [TWC](https://www.weather.com) which give you data, but no source
-information, and detailed analysis sites like
-[NOAA's analysis/model pages](http://www.spc.noaa.gov/exper/),
-[PSU's e-wall](http://mp1.met.psu.edu/~fxg1/ewall.html),
-and [pivotal weather](http://www.pivotalweather.com/).
+It was originally created by Nick Gregory that we now use to show Bismuth's capabilities as it's a medium complexity app
+spanning a data processing queue, backend API, and frontend.
 
-It will offer an API to get point data for any given location (ZIP code, lat/lon, etc.), which will return metrics from
-all kinds of sources (models like the HRRR, GFS, NAM, etc. as well as observational data like RADAR, CWOP, and soundings).
-The primary use of the API is the main site, which gives a high-level overview of current data and a forecast (for day-to-day use),
-but also shows the varience in forecast data, with a way to "dig down" to the raw source data.
+We've created a handful of issues in Jira representing real features and bugs.
+Feel free to modify the issues, adding details on what you'd like to see Bismuth do.
 
-For instance, the website may show a normal 5 day forecast, but each data point (temp, dew point, conditions, etc.) will
-be clickable to reveal which each source predicts that data point will be. For example, tomorrows temperature may just be
-shown as 50degF, but that temperature metric is clickable to reveal that the HRRR predicts that the temperature will be 49, the GFS says 51, and the NAM says 50.
-Each model run is preserved as well (i.e. not just the most recent model run is kept), so users can see trends over time.
-In the context of the prior example, the most recent HRRR may say the temp at 12Z is 49, but the HRRR from 2 hours ago might say it's 50, and the HRRR from 12 hours ago might say it's 47.
+To get started, follow these quick tutorials to link Bismuth to GitHub + Jira:
+* GitHub: https://www.loom.com/share/8ce05331a7944bcd9f63aeabc4be0c66
+* Jira: https://www.loom.com/share/42f2684bd22741839d3a9e8a5ebddd66
 
+Then to assign Bismuth to an issue, click Apps->Bismuth on the Jira ticket, select the repository, then click Assign.
+Bismuth will pick up the issue, show you its progress in the ticket and, after a few minutes, open a completed PR.
+You can also view everything Bismuth is doing by going to https://app.bismuth.cloud.
 
-## Why?
-This originally existed as a side project made by Nick Gregory: 
+To see the changes Bismuth has made, you can run Stratus locally:
 
-```
-I haven't found a website like this, and I think it would be useful both for meteorologists (the API can be easily integrated into other projects), as well
-as the average person who is just a bit curious about where their daily forecast really comes from.
-```
+1. Clone the repo and checkout the PR's branch
+1. Run `./dev.sh`
+1. Run `./dev-data.sh` to load some initial data into the system. This will take a few minutes.
 
-Now it's being utilized as a medium complexity demo application where we show case the different features of the https://bismuth.sh development platform.
-# Setup
+The frontend will then be available at http://localhost:3000
 
-## Dev
-
-To run the app:
-
-```sh
-./dev.sh
-./wx_explore/common/seed.py
-python3 ./wx_explore/app.py
-```
-
-`./dev.sh` will build everything into a docker image, create a postgres db, and drop you into a container.
-This container has the repo root mounted to `/opt/wx_explore` so code changes can be made on host and immediately tested in the container.
-
-`./seed.py` seeds the database with sources, metrics, and source fields necessary to import data.
-
-## Dev - UI
-`cd ./ui/wx_explore` and run `npm start` this should install all node packages and if you're running the development container begin to communicate with the backend.
+Finally, we've left a draft PR in this repo to better demonstrate some of the internal capabilities and reasoning that Bismuth does which puts us a step above our competitors.
+Simply mark it as ready for review after installing the GitHub app and Bismuth will start analyzing the changes, leaving comments, and suggesting fixes for bugs it discovers.
