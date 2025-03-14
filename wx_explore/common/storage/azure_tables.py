@@ -12,7 +12,8 @@ import concurrent.futures
 import datetime
 import logging
 import numpy
-import zlib
+import lzma
+import zlib  # Keep for backward compatibility with existing compressed data
 
 from . import DataProvider
 from wx_explore.common.models import (
@@ -33,7 +34,7 @@ class AzureTableBackend(DataProvider):
     We use the following:
         * pk is (proj_id, y)
         * row is (valid_time, run_time, x_shard)
-        * properties are "sf{n}" -> zlib'd bytearr value for each x in the shard
+        * properties are "sf{n}" -> lzma compressed bytearr value for each x in the shard
 
     This means:
         * Location queries are always on a single partition
@@ -113,7 +114,11 @@ class AzureTableBackend(DataProvider):
                 if key not in row or row[key] is None:
                     continue
 
-                raw = zlib.decompress(row[key].value)
+                try:
+                    raw = lzma.decompress(row[key].value)
+                except lzma.LZMAError:
+                    # Handle data compressed with zlib during transition period
+                    raw = zlib.decompress(row[key].value)
                 val = array.array("f", raw).tolist()[rel_x]
 
                 data_point = DataPointSet(
@@ -155,7 +160,7 @@ class AzureTableBackend(DataProvider):
 
                 for msg in msgs:
                     # XXX: this only keeps last msg per field breaking ensembles
-                    rows[row_key][f"sf{field_id}"] = EntityProperty(EdmType.BINARY, zlib.compress(msg[y][x:x+self.n_x_per_row].astype(numpy.float32).tobytes()))
+                    rows[row_key][f"sf{field_id}"] = EntityProperty(EdmType.BINARY, lzma.compress(msg[y][x:x+self.n_x_per_row].astype(numpy.float32).tobytes()))
 
         for row_chunk in chunk(rows.items(), 100):
             with TableService(self.account_name, self.account_key).batch(self.table_name) as batch:
