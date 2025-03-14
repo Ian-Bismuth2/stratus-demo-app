@@ -93,7 +93,12 @@ class TemperatureEvent(object):
 
 
 class WindEvent(object):
-    # XXX: what units are these in?
+    """
+    Represents a wind event at a specific time with speed and direction information.
+    
+    Wind speed classifications are defined in ranges of meters per second (m/s),
+    matching the units defined in metrics.py for wind_speed and gust_speed.
+    """
     CLASSIFICATIONS = RangeDict({
         range(0, 15): 'light',
         range(15, 30): 'moderate',
