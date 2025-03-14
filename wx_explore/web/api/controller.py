@@ -107,7 +107,7 @@ def get_location_from_coords():
         abort(400)
 
     # TODO: may need to add distance limit if perf drops
-    location = Location.query.order_by(Location.location.distance_centroid('POINT({} {})'.format(lon, lat))).first()
+    location = Location.query.order_by(Location.location.distance_centroid('POINT({} {})'.format(lon, lat))).first_or_404()
 
     return jsonify(location.serialize())
 
